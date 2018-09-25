@@ -1,0 +1,548 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "AWS CI/CD Pipeline",
+  "Parameters": {
+    "RepositoryName": {
+      "Description": "Source code repo for demo",
+      "Type": "String",
+      "Default": "andtrub-eureka"
+    },
+    "RepositoryBranch": {
+      "Description": "A branch in source code repo for demo",
+      "Type": "String",
+      "Default": "master"
+    },
+    "S3BucketName": {
+      "Description": "A bucket name to store everything",
+      "Type": "String",
+      "Default": "andtrub-cicd-bucket"
+    },
+    "ECSCluster": {
+      "Description": "ECS CLuster name",
+      "Type": "String",
+      "Default": "ECS-Test"
+    }
+  },
+  "Resources": {
+    "CodeBuildRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "codebuild.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path": "/",
+        "Policies": [
+          {
+            "PolicyName": "codebuild-service",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "*",
+                  "Resource": "*"
+                }
+              ],
+              "Version": "2012-10-17"
+            }
+          }
+        ]
+      }
+    },
+    "CodePipelineRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "codepipeline.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path": "/",
+        "Policies": [
+          {
+            "PolicyName": "codepipeline-service",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "codecommit:GetBranch",
+                    "codecommit:GetCommit",
+                    "codecommit:UploadArchive",
+                    "codecommit:GetUploadArchiveStatus",
+                    "codecommit:CancelUploadArchive"
+                  ],
+                  "Resource": "*",
+                  "Effect": "Allow"
+                },
+                {
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:GetObjectVersion",
+                    "s3:GetBucketVersioning"
+                  ],
+                  "Resource": "*",
+                  "Effect": "Allow"
+                },
+                {
+                  "Action": [
+                    "s3:PutObject"
+                  ],
+                  "Resource": [
+                    "arn:aws:s3:::codepipeline*",
+                    "arn:aws:s3:::elasticbeanstalk*"
+                  ],
+                  "Effect": "Allow"
+                },
+                {
+                  "Action": [
+                    "codebuild:*"
+                  ],
+                  "Resource": "*",
+                  "Effect": "Allow"
+                },
+                {
+                  "Action": [
+                    "codedeploy:CreateDeployment",
+                    "codedeploy:GetApplicationRevision",
+                    "codedeploy:GetDeployment",
+                    "codedeploy:GetDeploymentConfig",
+                    "codedeploy:RegisterApplicationRevision"
+                  ],
+                  "Resource": "*",
+                  "Effect": "Allow"
+                },
+                {
+                  "Action": [
+                    "elasticbeanstalk:*",
+                    "ec2:*",
+                    "elasticloadbalancing:*",
+                    "autoscaling:*",
+                    "cloudwatch:*",
+                    "s3:*",
+                    "sns:*",
+                    "cloudformation:*",
+                    "rds:*",
+                    "sqs:*",
+                    "ecs:*",
+                    "iam:PassRole"
+                  ],
+                  "Resource": "*",
+                  "Effect": "Allow"
+                },
+                {
+                  "Action": [
+                    "lambda:InvokeFunction",
+                    "lambda:ListFunctions"
+                  ],
+                  "Resource": "*",
+                  "Effect": "Allow"
+                }
+              ],
+              "Version": "2012-10-17"
+            }
+          }
+        ]
+      }
+    },
+    "S3Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "AccessControl": "PublicRead"
+      }
+    },
+    "EurekaTaskDefinition": {
+      "Type": "AWS::ECS::TaskDefinition",
+      "Properties": {
+        "NetworkMode": "awsvpc",
+        "Cpu": 256,
+        "Memory": 1024,
+        "Family": "eureka-fargate-task-definition",
+        "ExecutionRoleArn": "arn:aws:iam::048301474938:role/ecsTaskExecutionRole",
+        "RequiresCompatibilities": [
+          "FARGATE"
+        ],
+        "ContainerDefinitions": [
+          {
+            "Name": "eureka",
+            "Image": "048301474938.dkr.ecr.eu-central-1.amazonaws.com/eureka:latest",
+            "PortMappings": [
+              {
+                "ContainerPort": 8761,
+                "HostPort": 8761,
+                "Protocol": "tcp"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "EurekaService": {
+      "Type": "AWS::ECS::Service",
+      "Properties": {
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": [
+              "subnet-3ccd5154"
+            ],
+            "SecurityGroups": [
+              "sg-06d1c96e"
+            ],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Cluster": {
+          "Ref": "ECSCluster"
+        },
+        "DesiredCount": 1,
+        "TaskDefinition": {
+          "Ref": "EurekaTaskDefinition"
+        }
+      }
+    },
+    "SonarCheck": {
+      "Type": "AWS::CodeBuild::Project",
+      "Properties": {
+        "Name": "SonarCheck",
+        "Description": "Sonar static code analysis",
+        "ServiceRole": {
+          "Fn::GetAtt": [
+            "CodeBuildRole",
+            "Arn"
+          ]
+        },
+        "Artifacts": {
+          "Type": "CODEPIPELINE"
+        },
+        "Environment": {
+          "Type": "linuxContainer",
+          "ComputeType": "BUILD_GENERAL1_SMALL",
+          "Image": "aws/codebuild/java:openjdk-8"
+        },
+        "Source": {
+          "BuildSpec": "buildspec-sonar.yml",
+          "Type": "CODEPIPELINE"
+        },
+        "TimeoutInMinutes": 10
+      }
+    },
+    "CodeBuildCompileAndTest": {
+      "Type": "AWS::CodeBuild::Project",
+      "Properties": {
+        "Name": "CodeBuildCompileAndTest",
+        "Description": "Build Eureka",
+        "ServiceRole": {
+          "Fn::GetAtt": [
+            "CodeBuildRole",
+            "Arn"
+          ]
+        },
+        "Artifacts": {
+          "Type": "CODEPIPELINE"
+        },
+        "Environment": {
+          "Type": "linuxContainer",
+          "ComputeType": "BUILD_GENERAL1_SMALL",
+          "Image": "aws/codebuild/java:openjdk-8"
+        },
+        "Source": {
+          "BuildSpec": "buildspec-test.yml",
+          "Type": "CODEPIPELINE"
+        },
+        "TimeoutInMinutes": 10
+      }
+    },
+    "CodeBuildDockerContainer": {
+      "Type": "AWS::CodeBuild::Project",
+      "Properties": {
+        "Name": "CodeBuildDockerContainer",
+        "Description": "Build Eureka Docker Container",
+        "ServiceRole": {
+          "Fn::GetAtt": [
+            "CodeBuildRole",
+            "Arn"
+          ]
+        },
+        "Artifacts": {
+          "Type": "CODEPIPELINE"
+        },
+        "Environment": {
+          "Type": "linuxContainer",
+          "ComputeType": "BUILD_GENERAL1_SMALL",
+          "Image": "aws/codebuild/docker:17.09.0"
+        },
+        "Source": {
+          "BuildSpec": "buildspec.yml",
+          "Type": "CODEPIPELINE"
+        },
+        "TimeoutInMinutes": 10
+      }
+    },
+    "RunE2ETests": {
+      "Type": "AWS::CodeBuild::Project",
+      "Properties": {
+        "Name": "RunE2ETests",
+        "Description": "Run E2E test",
+        "ServiceRole": {
+          "Fn::GetAtt": [
+            "CodeBuildRole",
+            "Arn"
+          ]
+        },
+        "Artifacts": {
+          "Type": "CODEPIPELINE"
+        },
+        "Environment": {
+          "Type": "linuxContainer",
+          "ComputeType": "BUILD_GENERAL1_SMALL",
+          "Image": "aws/codebuild/java:openjdk-8"
+        },
+        "Source": {
+          "BuildSpec": "buildspec-e2e.yml",
+          "Type": "CODEPIPELINE"
+        },
+        "TimeoutInMinutes": 10
+      }
+    },
+    "CodePipelineStack": {
+      "Type": "AWS::CodePipeline::Pipeline",
+      "Properties": {
+        "RoleArn": {
+          "Fn::Join": [
+            "",
+            [
+              "arn:aws:iam::",
+              {
+                "Ref": "AWS::AccountId"
+              },
+              ":role/",
+              {
+                "Ref": "CodePipelineRole"
+              }
+            ]
+          ]
+        },
+        "Stages": [
+          {
+            "Name": "Source",
+            "Actions": [
+              {
+                "InputArtifacts": [
+                ],
+                "Name": "Source",
+                "ActionTypeId": {
+                  "Category": "Source",
+                  "Owner": "AWS",
+                  "Version": "1",
+                  "Provider": "CodeCommit"
+                },
+                "OutputArtifacts": [
+                  {
+                    "Name": "MyApp"
+                  }
+                ],
+                "Configuration": {
+                  "BranchName": {
+                    "Ref": "RepositoryBranch"
+                  },
+                  "RepositoryName": {
+                    "Ref": "RepositoryName"
+                  }
+                },
+                "RunOrder": 1
+              }
+            ]
+          },
+          {
+            "Name": "TestBuildAndAnalyze",
+            "Actions": [
+              {
+                "InputArtifacts": [
+                  {
+                    "Name": "MyApp"
+                  }
+                ],
+                "Name": "UnitTests",
+                "ActionTypeId": {
+                  "Category": "Build",
+                  "Owner": "AWS",
+                  "Version": "1",
+                  "Provider": "CodeBuild"
+                },
+                "OutputArtifacts": [
+                  {
+                    "Name": "MyAppBuild"
+                  }
+                ],
+                "Configuration": {
+                  "ProjectName": {
+                    "Ref": "CodeBuildCompileAndTest"
+                  }
+                },
+                "RunOrder": 1
+              },
+              {
+                "InputArtifacts": [
+                  {
+                    "Name": "MyApp"
+                  }
+                ],
+                "Name": "RunSonarCheck",
+                "ActionTypeId": {
+                  "Category": "Build",
+                  "Owner": "AWS",
+                  "Version": "1",
+                  "Provider": "CodeBuild"
+                },
+                "OutputArtifacts": [
+                  {
+                    "Name": "MyAppBuild2"
+                  }
+                ],
+                "Configuration": {
+                  "ProjectName": {
+                    "Ref": "SonarCheck"
+                  }
+                },
+                "RunOrder": 1
+              }
+            ]
+          },
+          {
+            "Name": "BuildDockerContainer",
+            "Actions": [
+              {
+                "InputArtifacts": [
+                  {
+                    "Name": "MyAppBuild"
+                  }
+                ],
+                "Name": "BuildDockerContainer",
+                "ActionTypeId": {
+                  "Category": "Build",
+                  "Owner": "AWS",
+                  "Version": "1",
+                  "Provider": "CodeBuild"
+                },
+                "OutputArtifacts": [
+                  {
+                    "Name": "MyAppDocker"
+                  }
+                ],
+                "Configuration": {
+                  "ProjectName": {
+                    "Ref": "CodeBuildDockerContainer"
+                  }
+                },
+                "RunOrder": 1
+              }
+            ]
+          },
+          {
+            "Name": "DeployDockerContainer",
+            "Actions": [
+              {
+                "InputArtifacts": [
+                  {
+                    "Name": "MyAppDocker"
+                  }
+                ],
+                "Name": "DeployDockerContainer",
+                "ActionTypeId": {
+                  "Category": "Deploy",
+                  "Owner": "AWS",
+                  "Version": "1",
+                  "Provider": "ECS"
+                },
+                "OutputArtifacts": [],
+                "Configuration": {
+                  "ClusterName": {
+                    "Ref": "ECSCluster"
+                  },
+                  "ServiceName": {
+                    "Ref": "EurekaService"
+                  },
+                  "FileName": "Eureka.json"
+                },
+                "RunOrder": 1
+              }
+            ]
+          },
+          {
+            "Name": "RunE2ETests",
+            "Actions": [
+              {
+                "InputArtifacts": [
+                  {
+                    "Name": "MyApp"
+                  }
+                ],
+                "Name": "RunE2ETests",
+                "ActionTypeId": {
+                  "Category": "Build",
+                  "Owner": "AWS",
+                  "Version": "1",
+                  "Provider": "CodeBuild"
+                },
+                "OutputArtifacts": [],
+                "Configuration": {
+                  "ProjectName": {
+                    "Ref": "RunE2ETests"
+                  }
+                },
+                "RunOrder": 1
+              }
+            ]
+          }
+        ],
+        "ArtifactStore": {
+          "Type": "S3",
+          "Location": {
+            "Ref": "S3Bucket"
+          }
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "PipelineUrl": {
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "https://console.aws.amazon.com/codepipeline/home?region=",
+            {
+              "Ref": "AWS::Region"
+            },
+            "#/view/",
+            {
+              "Ref": "CodePipelineStack"
+            }
+          ]
+        ]
+      },
+      "Description": "Pipeline URL"
+    }
+  }
+}
