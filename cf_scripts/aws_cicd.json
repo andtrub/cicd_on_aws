@@ -17,7 +17,12 @@
       "Type": "String",
       "Default": "andtrub-cicd-bucket"
     },
-    "ECSCluster": {
+    "ECSClusterDEV": {
+      "Description": "ECS CLuster name",
+      "Type": "String",
+      "Default": "ECS-Test"
+    },
+    "ECSClusterQA": {
       "Description": "ECS CLuster name",
       "Type": "String",
       "Default": "ECS-Test"
@@ -213,7 +218,7 @@
           }
         },
         "Cluster": {
-          "Ref": "ECSCluster"
+          "Ref": "ECSClusterDEV"
         },
         "DesiredCount": 1,
         "TaskDefinition": {
@@ -460,7 +465,7 @@
             ]
           },
           {
-            "Name": "DeployDockerContainer",
+            "Name": "DeployDockerContainerToDEV",
             "Actions": [
               {
                 "InputArtifacts": [
@@ -478,7 +483,7 @@
                 "OutputArtifacts": [],
                 "Configuration": {
                   "ClusterName": {
-                    "Ref": "ECSCluster"
+                    "Ref": "ECSClusterDEV"
                   },
                   "ServiceName": {
                     "Ref": "EurekaService"
@@ -511,6 +516,23 @@
                     "Ref": "RunE2ETests"
                   }
                 },
+                "RunOrder": 1
+              }
+            ]
+          },
+          {
+            "Name": "ManualApproval",
+            "Actions": [
+              {
+                "Name": "ManualApprovalToDeployToQA",
+                "ActionTypeId": {
+                  "Category": "Approval",
+                  "Owner": "AWS",
+                  "Version": "1",
+                  "Provider": "Manual"
+                },
+                "InputArtifacts": [],
+                "OutputArtifacts": [],
                 "RunOrder": 1
               }
             ]
