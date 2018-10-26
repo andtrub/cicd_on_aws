@@ -20,12 +20,12 @@
     "ECSClusterDEV": {
       "Description": "ECS CLuster name",
       "Type": "String",
-      "Default": "ECS-Test"
+      "Default": "ECS-TestDev"
     },
     "ECSClusterQA": {
       "Description": "ECS CLuster name",
       "Type": "String",
-      "Default": "ECS-Test"
+      "Default": "ECS-TestQA"
     }
   },
   "Resources": {
@@ -200,6 +200,30 @@
             ]
           }
         ]
+      }
+    },
+    "EurekaServiceQA": {
+      "Type": "AWS::ECS::Service",
+      "Properties": {
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": [
+              "subnet-3ccd5154"
+            ],
+            "SecurityGroups": [
+              "sg-06d1c96e"
+            ],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Cluster": {
+          "Ref": "ECSClusterQA"
+        },
+        "DesiredCount": 1,
+        "TaskDefinition": {
+          "Ref": "EurekaTaskDefinition"
+        }
       }
     },
     "EurekaService": {
@@ -533,6 +557,36 @@
                 },
                 "InputArtifacts": [],
                 "OutputArtifacts": [],
+                "RunOrder": 1
+              }
+            ]
+          },
+          {
+            "Name": "DeployDockerContainerToQA",
+            "Actions": [
+              {
+                "InputArtifacts": [
+                  {
+                    "Name": "MyAppDocker"
+                  }
+                ],
+                "Name": "DeployDockerContainer",
+                "ActionTypeId": {
+                  "Category": "Deploy",
+                  "Owner": "AWS",
+                  "Version": "1",
+                  "Provider": "ECS"
+                },
+                "OutputArtifacts": [],
+                "Configuration": {
+                  "ClusterName": {
+                    "Ref": "ECSClusterQA"
+                  },
+                  "ServiceName": {
+                    "Ref": "EurekaServiceQA"
+                  },
+                  "FileName": "Eureka.json"
+                },
                 "RunOrder": 1
               }
             ]
